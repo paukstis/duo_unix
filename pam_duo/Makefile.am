@@ -15,13 +15,24 @@ semodule_name = authlogin_duo
 semodule:
 	-checkmodule -M -m -o $(semodule_name).mod $(semodule_name).te
 	-semodule_package -o $(semodule_name).pp -m $(semodule_name).mod
-	-semodule -i $(semodule_name).pp
+
+semodule-install:
+	-bzip2 -9 $(semodule_name).pp
+	-install -d $(DESTDIR)/usr/share/selinux/packages/
+	-install -m 0644 $(semodule_name).pp.bz2 $(DESTDIR)/usr/share/selinux/packages/
+	-semodule -i $(DESTDIR)/usr/share/selinux/packages/$(semodule_name).pp.bz2
 
 semodule-remove:
 	-semodule -r $(semodule_name)
-	-rm -f $(semodule_name).mod $(semodule_name).pp
+	-rm -f $(DESTDIR)/usr/share/selinux/packages/$(semodule_name).pp.bz2
 
-.PHONY: semodule semodule-remove
+clean-local: clean-local-semodule
+
+clean-local-semodule:
+	-rm -f $(semodule_name).{mod,pp,pp.bz2}
+
+.PHONY: semodule semodule-enable semodule-install semodule-remove clean-local-semodule
+
 
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(sysconfdir)
@@ -33,5 +44,16 @@ install-data-local:
 		echo "Found existing ${DESTDIR}$(sysconfdir)/pam_duo.conf - updating permissions"; \
 	fi
 	-chmod 600 $(DESTDIR)$(sysconfdir)/pam_duo.conf
+	-@if test "x$(IS_AIX)" = "xyes"; then \
+		rm -f $(PAMDIR)/pam_duo.so; \
+		ar x $(top_builddir)/pam_duo/.libs/pam_duo.a $(PAMDIR)/pam_duo.so; \
+		echo "Extracting shared object ${PAMDIR}/pam_duo.so from $(top_builddir)/pam_duo/.libs/pam_duo.a"; \
+	fi
 
-EXTRA_DIST = pam_duo.conf
+uninstall-local:
+	-@if test "x$(IS_AIX)" = "xyes"; then \
+		rm -f $(PAMDIR)/pam_duo.so; \
+		echo "Removing shared object ${PAMDIR}/pam_duo.so"; \
+	fi
+
+EXTRA_DIST = pam_duo.conf $(semodule_name).te

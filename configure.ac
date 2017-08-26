@@ -7,7 +7,7 @@ AC_PREREQ(2.65)
 
 # Package, version, bug report address
 AC_INIT([duo_unix],
-	[1.9.14],
+	[1.10.1],
 	[support@duosecurity.com])
 
 # Tells autoconf where to find necessary build scripts and macros.
@@ -45,25 +45,29 @@ if test "x$GCC" = "xyes"; then
    AC_MSG_NOTICE([Adding gcc options: $CFLAGS])
 fi
 GGL_CHECK_STACK_PROTECTOR([has_stack_protector=yes], [has_stack_protector=no])
+IS_AIX=no
 # XXX - disable -fstack-protector due to missing libssp_nonshared
 case "$host_os" in
-     *aix*)
-	AC_MSG_NOTICE([-fstack-protector disabled on AIX])
-	has_stack_protector=no
-	;;
-     *sunos*)
-	AC_MSG_NOTICE([-fstack-protector disabled on SunOS])
-	has_stack_protector=no
-	;;
-     *solaris*)
-	AC_MSG_NOTICE([-fstack-protector disabled on Solaris])
-	has_stack_protector=no
-	;;
+    *aix*)
+        AC_MSG_NOTICE([-fstack-protector disabled on AIX])
+        has_stack_protector=no
+        IS_AIX=yes
+        ;;
+    *sunos*)
+        AC_MSG_NOTICE([-fstack-protector disabled on SunOS])
+        has_stack_protector=no
+        ;;
+    *solaris*)
+        AC_MSG_NOTICE([-fstack-protector disabled on Solaris])
+        has_stack_protector=no
+        ;;
 esac
 if test x$has_stack_protector = xyes; then
    CFLAGS="$CFLAGS -fstack-protector"
    AC_MSG_NOTICE([-fstack-protector enabled in CFLAGS])
 fi
+
+AC_SUBST(IS_AIX, "$IS_AIX")
 
 # Check for platform features
 AC_C_BIGENDIAN
@@ -169,10 +173,10 @@ AC_MSG_NOTICE([Using libdir "$libdir"])
 
 # Check for functions
 AC_CONFIG_LIBOBJ_DIR([compat])
-AC_CHECK_FUNCS([memcpy memset sysconf getaddrinfo])
+AC_CHECK_FUNCS([memcpy memset sysconf getaddrinfo open64 fopen64 explicit_bzero memset_s])
 AC_REPLACE_FUNCS([asprintf getgrouplist strlcpy vsyslog])
 AC_SEARCH_LIBS(inet_ntoa, nsl)
-AC_SEARCH_LIBS(gethostbyname, resolv nsl)
+AC_SEARCH_LIBS(socket, socket)
 
 AC_CONFIG_FILES(Makefile compat/Makefile lib/Makefile lib/libduo.pc login_duo/Makefile pam_duo/Makefile duo_unix.spec tests/Makefile)
 

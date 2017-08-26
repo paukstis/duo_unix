@@ -27,6 +27,7 @@
 
 #include "util.h"
 #include "duo.h"
+#include "shell.h"
 
 #ifndef DUO_PRIVSEP_USER
 #define DUO_PRIVSEP_USER    "duo"
@@ -79,12 +80,15 @@ __autopush_status_fn(void *arg, const char*msg)
 static int
 drop_privs(uid_t uid, gid_t gid)
 {
-    if (setgid(gid) < 0)
+    if (setgid(gid) < 0) {
         return (-1);
-    if (setuid(uid) < 0)
+    }
+    if (setuid(uid) < 0) {
         return (-1);
-    if (getgid() != gid || getuid() != uid)
+    }
+    if (getgid() != gid || getuid() != uid) {
         return (-1);
+    }
     return (0);
 }
 
@@ -123,52 +127,81 @@ do_auth(struct login_ctx *ctx, const char *cmd)
     int i, flags, ret, prompts, matched;
     int headless = 0;
 
-        if ((pw = getpwuid(ctx->uid)) == NULL)
-                die("Who are you?");
-        
+    /*
+     * Handle a delimited GECOS field. E.g.
+     *
+     *     username:x:0:0:code1/code2/code3//textField/usergecosparsed:/username:/bin/bash
+     *
+     * Parse the username from the appropriate position in the GECOS field.
+     */
+    const char delimiter = '/';
+    const unsigned int delimited_position = 5;
+
+    if ((pw = getpwuid(ctx->uid)) == NULL) {
+        die("Who are you?");
+    }
+
     duouser = ctx->duouser ? ctx->duouser : pw->pw_name;
     config = ctx->config ? ctx->config : DUO_CONF;
     flags = 0;
-    
+
     duo_config_default(&cfg);
-        
+
     /* Load our private config. */
     if ((i = duo_parse_config(config, __ini_handler, &cfg)) != 0 ||
             (!cfg.apihost || !cfg.apihost[0] || !cfg.skey || !cfg.skey[0] ||
                 !cfg.ikey || !cfg.ikey[0])) {
-                switch (i) {
-                case -2:
-                        fprintf(stderr, "%s must be readable only by "
-                            "user '%s'\n", config, pw->pw_name);
-                        break;
-                case -1:
-                        fprintf(stderr, "Couldn't open %s: %s\n",
-                            config, strerror(errno));
-                        break;
-                case 0:
-                        fprintf(stderr, "Missing host, ikey, or skey in %s\n",
-                            config);
-                        break;
-                default:
-                        fprintf(stderr, "Parse error in %s, line %d\n",
-                            config, i);
-                        break;
-                }
-                /* Implicit "safe" failmode for local configuration errors */
-                if (cfg.failmode == DUO_FAIL_SAFE) {
-                        return (EXIT_SUCCESS);
-                }
-                return (EXIT_FAILURE);
+        switch (i) {
+        case -2:
+            fprintf(stderr, "%s must be readable only by "
+                "user '%s'\n", config, pw->pw_name);
+            break;
+        case -1:
+            fprintf(stderr, "Couldn't open %s: %s\n",
+                config, strerror(errno));
+            break;
+        case 0:
+            fprintf(stderr, "Missing host, ikey, or skey in %s\n",
+                config);
+            break;
+        default:
+            fprintf(stderr, "Parse error in %s, line %d\n",
+                config, i);
+            break;
+        }
+        /* Implicit "safe" failmode for local configuration errors */
+        if (cfg.failmode == DUO_FAIL_SAFE) {
+            return (EXIT_SUCCESS);
+        }
+        return (EXIT_FAILURE);
     }
     prompts = cfg.prompts;
     /* Check group membership. */
     matched = duo_check_groups(pw, cfg.groups, cfg.groups_cnt);
     if (matched == -1) {
+        close_config(&cfg);
         return (EXIT_FAILURE);
     } else if (matched == 0) {
+        close_config(&cfg);
         return (EXIT_SUCCESS);
     }
 
+    /* Use GECOS field if called for */
+    if ((cfg.send_gecos || cfg.gecos_parsed) && !ctx->duouser) {
+        if (strlen(pw->pw_gecos) > 0) {
+            if (cfg.gecos_parsed) {
+                duouser = duo_split_at(pw->pw_gecos, delimiter, delimited_position);
+                if (duouser == NULL || (strcmp(duouser, "") == 0)) {
+                    duo_log(LOG_DEBUG, "Could not parse GECOS field", pw->pw_name, NULL, NULL);
+                    duouser = pw->pw_name;
+                }
+            } else {
+                duouser = pw->pw_gecos;
+            }
+        } else {
+            duo_log(LOG_WARNING, "Empty GECOS field", pw->pw_name, NULL, NULL);
+        }
+    }
 
     /* Check for remote login host */
     if ((host = ip = getenv("SSH_CONNECTION")) != NULL ||
@@ -178,22 +211,20 @@ do_auth(struct login_ctx *ctx, const char *cmd)
             ip = strtok(buf, " ");
             host = ip;
         } else {
-            ip = (cfg.local_ip_fallback ? duo_local_ip() : NULL);
+            if (cfg.local_ip_fallback) {
+                host = duo_local_ip();
+            }
         }
-    }
-
-    /* Honor configured http_proxy */
-    if (cfg.http_proxy != NULL) {
-        setenv("http_proxy", cfg.http_proxy, 1);
     }
 
     /* Try Duo auth. */
     if ((duo = duo_open(cfg.apihost, cfg.ikey, cfg.skey,
                     "login_duo/" PACKAGE_VERSION,
                     cfg.noverify ? "" : cfg.cafile,
-                    cfg.https_timeout)) == NULL) {
+                    cfg.https_timeout, cfg.http_proxy)) == NULL) {
         duo_log(LOG_ERR, "Couldn't open Duo API handle",
             pw->pw_name, host, NULL);
+        close_config(&cfg);
         return (EXIT_FAILURE);
     }
 
@@ -206,8 +237,7 @@ do_auth(struct login_ctx *ctx, const char *cmd)
         prompts = 1;
         headless = 1;
     } else if (cfg.autopush) { /* Special handling for autopush */
-        duo_set_conv_funcs(duo, NULL, __autopush_status_fn, 
-                NULL);
+        duo_set_conv_funcs(duo, NULL, __autopush_status_fn, NULL);
         flags = (DUO_FLAG_SYNC|DUO_FLAG_AUTO);
     }
 
@@ -216,7 +246,7 @@ do_auth(struct login_ctx *ctx, const char *cmd)
     }
 
     ret = EXIT_FAILURE;
-    
+
     for (i = 0; i < prompts; i++) {
         code = duo_login(duo, duouser, host, flags,
                     cfg.pushinfo ? cmd : NULL);
@@ -263,6 +293,7 @@ do_auth(struct login_ctx *ctx, const char *cmd)
         break;
     }
     duo_close(duo);
+    close_config(&cfg);
 
     return (ret);
 }
@@ -272,7 +303,7 @@ _argv_to_string(int argc, char *argv[])
 {
     char *s;
     int i, j, n;
-    
+
     for (n = i = 0; i < argc; i++) {
         n += strlen(argv[i]) + 1;
     }
@@ -286,50 +317,59 @@ _argv_to_string(int argc, char *argv[])
         s[n++] = ' ';
     }
     s[--n] = '\0';
-    
+
     return (s);
 }
 
 static void
 do_exec(struct login_ctx *ctx, const char *cmd)
 {
-        struct passwd *pw;
+    struct passwd *pw;
     const char *shell0;
     char argv0[256];
+    const char *user_shell;
     int n;
 
-        if ((pw = getpwuid(ctx->uid)) == NULL)
-                die("Who are you?");
-        
-    if ((shell0 = strrchr(pw->pw_shell, '/')) != NULL) {
+    if ((pw = getpwuid(ctx->uid)) == NULL) {
+        die("Who are you?");
+    }
+
+    /* Check to see if we have a shell from getpwuid() */
+    if (NULL == pw->pw_shell) {
+      user_shell = _DEFAULT_SHELL; /* No shell so use the default. */
+    } else {
+      user_shell = pw->pw_shell; /* Use the shell provided by getpwuid() */
+    }
+    if ((shell0 = strrchr(user_shell, '/')) != NULL) {
         shell0++;
     } else {
-        shell0 = pw->pw_shell;
+        shell0 = user_shell;
     }
     if (cmd != NULL) {
-        execl(pw->pw_shell, shell0, "-c", cmd, (char *)NULL);
+        execl(user_shell, shell0, "-c", cmd, (char *)NULL);
     } else {
         n = snprintf(argv0, sizeof(argv0), "-%s", shell0);
         if (n == -1 || n >= sizeof(argv0)) {
-            die("%s: Invalid argument", pw->pw_shell);
+            die("%s: Invalid argument", user_shell);
         }
-        execl(pw->pw_shell, argv0, (char *)NULL);
+        execl(user_shell, argv0, (char *)NULL);
     }
-    die("%s: %s", pw->pw_shell, strerror(errno));
+    die("%s: %s", user_shell, strerror(errno));
 }
 
 static char *
 get_command(int argc, char *argv[])
 {
-        char *cmd;
-        
-        if (argc > 0) {
-                if ((cmd = _argv_to_string(argc, argv)) == NULL)
-                        die("error converting arguments to command");
-        } else {
-                cmd = getenv("SSH_ORIGINAL_COMMAND");
+    char *cmd;
+
+    if (argc > 0) {
+        if ((cmd = _argv_to_string(argc, argv)) == NULL) {
+            die("error converting arguments to command");
         }
-        return (cmd);
+    } else {
+        cmd = getenv("SSH_ORIGINAL_COMMAND");
+    }
+    return (cmd);
 }
 
 static void
@@ -352,9 +392,9 @@ main(int argc, char *argv[])
     pid_t pid;
     int c, stat;
     pid_t wait_res;
-    
+
     memset(ctx, 0, sizeof(ctx));
-    
+
     while ((c = getopt(argc, argv, "vc:df:h:?")) != -1) {
         switch (c) {
         case 'v':
@@ -379,8 +419,8 @@ main(int argc, char *argv[])
     argc -= optind;
     argv += optind;
 
-        ctx->uid = getuid();
-        
+    ctx->uid = getuid();
+
     if (geteuid() != ctx->uid) {
         /* Setuid-root operation protecting private config. */
         if (ctx->config != NULL || ctx->duouser != NULL) {
@@ -415,8 +455,8 @@ main(int argc, char *argv[])
             }
         }
     } else {
-                char *cmd = get_command(argc, argv);
-                
+        char *cmd = get_command(argc, argv);
+
         /* Non-setuid root operation or running as root. */
         if (do_auth(ctx, cmd) == EXIT_SUCCESS) {
             do_exec(ctx, cmd);

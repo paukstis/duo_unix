@@ -1,3 +1,53 @@
+duo_unix-1.10.1:
+
+- Fixed bug causing automated tests to fail on OSX
+- Addressed an issue which kept configuration secrets in memory for longer than necessary
+
+duo_unix-1.10.0:
+
+- Added LibreSSL support
+- Added additional GECOS parsing support
+- Increased OSX group count
+
+duo_unix-1.9.21:
+
+- PSA-2017-002: Only allow http_proxy to be defined in configuration file instead of environment
+
+duo_unix-1.9.20:
+
+- Fix installation on AIX systems
+- Add support for using OpenSSL 1.1.0
+- Link libduo statically to address issues with the ldconfig cache and incompatibilities between versions
+- Fixed a bug that produced incorrect SNI when using a proxy
+
+duo_unix-1.9.19:
+
+- Restore the http_proxy environment variable after Duo is done
+- Added https_timeout config option to pam_duo
+- Handles missing shell and adds default if not specified in getpwuid
+- Add SNI support and a guard for systems that don't support SNI
+- Bug fixes for timeouts and fallback ip addresses
+
+duo_unix-1.9.18:
+
+- Added HTTP proxy connection error handling
+- Improved compatibility with Solaris and AIX
+
+duo_unix-1.9.17:
+
+- Fixed PAM return code issue
+
+duo_unix-1.9.16:
+
+- Test fixes
+- Compilation fixes
+
+duo_unix-1.9.15:
+
+- SELinux policy module package support
+- PAM module improvements
+- Removed deprecated SHA1 Entrust CA
+
 duo_unix-1.9.14:
 
 - Added SELinux policy module

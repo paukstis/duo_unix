@@ -13,13 +13,13 @@ def main():
     if sys.platform == 'darwin':
         env['DYLD_LIBRARY_PATH'] = paths.topbuilddir + '/lib/.libs'
         env['DYLD_INSERT_LIBRARIES'] = paths.build + \
-                                       '/.libs/libgroups_preload.dylib'
+                                       '/.libs/liblogin_duo_preload.dylib'
         env['DYLD_FORCE_FLAT_NAMESPACE'] = '1'
     elif sys.platform == 'sunos5':
         architecture = {'32bit': '32', '64bit': '64'}[platform.architecture()[0]]
-        env['LD_PRELOAD_' + architecture] = paths.build + '/.libs/libgroups_preload.so'
+        env['LD_PRELOAD_' + architecture] = paths.build + '/.libs/liblogin_duo_preload.so'
     else:
-        env['LD_PRELOAD'] = paths.build + '/.libs/libgroups_preload.so'
+        env['LD_PRELOAD'] = paths.build + '/.libs/liblogin_duo_preload.so'
 
     args = [ paths.login_duo ] + sys.argv[1:]
     p = subprocess.Popen(args, env=env)
