@@ -10,6 +10,7 @@
 
 #define MAX_GROUPS 256
 #define MAX_PROMPTS 3
+#define MAX_IP_WHITELIST 256
 
 #include <pwd.h>
 #include <syslog.h>
@@ -29,6 +30,8 @@ struct duo_config {
     char *cafile;
     char *http_proxy;
     char *groups[MAX_GROUPS];
+    char *ip_whitelist[MAX_IP_WHITELIST];
+    int  ip_whitelist_cnt;
     int  groups_cnt;
     int  groups_mode;
     int  failmode;  /* Duo failure handling: DUO_FAIL_* */
@@ -54,6 +57,8 @@ int duo_common_ini_handler(
     const char *name,
     const char *val
 );
+
+int duo_check_ip_whitelist(const char *host, char **ip_whitelist, int ip_whitelist_cnt);
 
 /* Clean up config memory. */
 void close_config(struct duo_config *cfg);

@@ -217,6 +217,11 @@ do_auth(struct login_ctx *ctx, const char *cmd)
         }
     }
 
+    /* Check if IP is whitelisted. */
+    if (duo_check_ip_whitelist(host, cfg.ip_whitelist, cfg.ip_whitelist_cnt) == 1) {
+        return (EXIT_SUCCESS);
+    }
+
     /* Try Duo auth. */
     if ((duo = duo_open(cfg.apihost, cfg.ikey, cfg.skey,
                     "login_duo/" PACKAGE_VERSION,
